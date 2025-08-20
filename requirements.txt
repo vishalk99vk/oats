@@ -1,3 +1,5 @@
-streamlit>=1.26.0
-pillow>=10.0.0
-requests>=2.32.0
+streamlit==1.48.1
+easyocr==2.16.0
+Pillow==10.0.0
+requests==2.32.0
+torch>=2.1.0
