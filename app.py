@@ -1,68 +1,42 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
-from PIL import Image
-from io import BytesIO
 import easyocr
-import asyncio
-import httpx
-import time
+import requests
+from io import BytesIO
+import gc
 
-# Initialize OCR reader
+st.title("Lightweight Bulk Image OCR")
+
+# Initialize OCR reader once
 reader = easyocr.Reader(['en'], gpu=False)
 
-st.title("Fast Batch OCR from Image URLs")
+# Input links
+image_links_text = st.text_area("Paste image URLs (one per line)", height=200)
 
-uploaded_file = st.file_uploader("Upload text file with image URLs", type=["txt"])
-
-if uploaded_file:
-    urls = [line.strip() for line in uploaded_file.read().decode("utf-8").splitlines() if line.strip()]
-    
-    if not urls:
-        st.warning("No URLs found!")
+if st.button("Run OCR"):
+    links = [line.strip() for line in image_links_text.split("\n") if line.strip()]
+    if not links:
+        st.error("Please enter image URLs")
     else:
-        st.info(f"Processing {len(urls)} images in batches of 20 asynchronously...")
         results = []
-        batch_size = 20
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
-        async def fetch_image(client, url):
-            try:
-                response = await client.get(url, timeout=15)
-                img = Image.open(BytesIO(response.content)).convert('RGB')
-                return np.array(img)
-            except Exception as e:
-                return f"Error: {e}"
-
-        async def process_batch(batch):
-            async with httpx.AsyncClient() as client:
-                images = await asyncio.gather(*[fetch_image(client, url) for url in batch])
-                batch_results = []
-                for idx, img_np in enumerate(images):
-                    url = batch[idx]
-                    if isinstance(img_np, str):
-                        batch_results.append({"URL": url, "Text": img_np})
-                    else:
-                        text = reader.readtext(img_np, detail=0)
-                        batch_results.append({"URL": url, "Text": " | ".join(text)})
-                        del img_np  # free memory
-                return batch_results
-
-        async def main():
-            for start in range(0, len(urls), batch_size):
-                batch = urls[start:start+batch_size]
-                status_text.text(f"Processing images {start+1} to {min(start+batch_size, len(urls))}")
-                batch_results = await process_batch(batch)
-                results.extend(batch_results)
-                pd.DataFrame(results).to_csv("temp_ocr_results.csv", index=False)
-                progress_bar.progress(min(start+batch_size, len(urls)) / len(urls))
-                await asyncio.sleep(0.05)
-
-        asyncio.run(main())
+        for idx, url in enumerate(links, 1):
+            with st.spinner(f"Processing image {idx}/{len(links)}"):
+                try:
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    img_bytes = BytesIO(response.content)
+                    ocr_result = reader.readtext(img_bytes)
+                    text = " ".join([r[1] for r in ocr_result]) if ocr_result else ""
+                    results.append({"url": url, "text": text})
+                except Exception as e:
+                    results.append({"url": url, "text": f"Error: {str(e)}"})
+                finally:
+                    del img_bytes
+                    gc.collect()
 
         st.success("OCR Completed!")
-        st.download_button("Download final CSV", 
-                           data=pd.DataFrame(results).to_csv(index=False).encode('utf-8'), 
-                           file_name="ocr_results.csv")
+
+        # Show results
+        for res in results:
+            st.write(f"**URL:** {res['url']}")
+            st.write(f"**Text:** {res['text']}")
+            st.markdown("---")
