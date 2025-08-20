@@ -1,29 +1,55 @@
 import streamlit as st
-from PIL import Image
+import easyocr
+import pandas as pd
 import requests
 from io import BytesIO
-import easyocr  # pure Python OCR library
 
 # Initialize OCR reader
-reader = easyocr.Reader(['en'])  # English language
+reader = easyocr.Reader(['en'], gpu=False)  # CPU mode
 
-st.title("OCR from Image URLs")
+st.title("Bulk Image OCR from URLs")
 
-uploaded_file = st.file_uploader("Upload a text file with image URLs", type="txt")
+# Upload text file with image URLs
+uploaded_file = st.file_uploader("Upload a text file containing image URLs (one per line)", type=["txt"])
 
 if uploaded_file:
-    urls = uploaded_file.read().decode("utf-8").splitlines()
-    for url in urls:
-        st.write(f"Processing: {url}")
+    # Read image URLs
+    image_links = uploaded_file.read().decode("utf-8").splitlines()
+    st.success(f"Found {len(image_links)} image URLs!")
+
+    batch_size = st.number_input("Batch size", min_value=10, max_value=200, value=50, step=10)
+
+    @st.cache_data
+    def ocr_image(url):
         try:
-            response = requests.get(url)
-            img = Image.open(BytesIO(response.content))
-
-            # Run OCR
-            result = reader.readtext(response.content)
-            extracted_text = " ".join([text[1] for text in result])
-
-            st.image(img, caption="Image")
-            st.text_area("Extracted Text", extracted_text, height=150)
+            response = requests.get(url, timeout=10)
+            img = BytesIO(response.content)
+            result = reader.readtext(img, detail=0)
+            return " | ".join(result)
         except Exception as e:
-            st.error(f"Failed to process {url}: {e}")
+            return f"Error: {e}"
+
+    results = []
+    progress_bar = st.progress(0)
+    
+    for i in range(0, len(image_links), batch_size):
+        batch = image_links[i:i+batch_size]
+        for link in batch:
+            text = ocr_image(link)
+            results.append({"URL": link, "Extracted Text": text})
+        progress_bar.progress((i + batch_size)/len(image_links))
+
+    st.success("OCR Processing Completed!")
+
+    # Convert to DataFrame
+    df = pd.DataFrame(results)
+    st.dataframe(df)
+
+    # Download as CSV
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="Download OCR results as CSV",
+        data=csv,
+        file_name='ocr_results.csv',
+        mime='text/csv'
+    )
