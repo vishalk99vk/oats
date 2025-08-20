@@ -1,20 +1,35 @@
-from paddleocr import PaddleOCR
 import streamlit as st
-from PIL import Image
 import requests
-from io import BytesIO
+from PIL import Image
 
-st.title("Image OCR Viewer")
+st.title("Image Viewer with OCR (No Heavy Libraries)")
 
-uploaded_file = st.file_uploader("Upload a text file with image URLs", type=["txt"])
+# Upload image
+uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
 
 if uploaded_file:
-    urls = uploaded_file.read().decode("utf-8").splitlines()
-    ocr = PaddleOCR(use_angle_cls=True, lang='en')
-    for url in urls:
-        response = requests.get(url)
-        img = Image.open(BytesIO(response.content))
-        st.image(img, caption=url, use_column_width=True)
-        result = ocr.ocr(url, cls=True)
-        text = "\n".join([line[1][0] for line in result[0]])
-        st.text_area(f"OCR Text for {url}", text, height=150)
+    # Display uploaded image
+    img = Image.open(uploaded_file)
+    st.image(img, caption="Uploaded Image", use_column_width=True)
+
+    # OCR.space API key (use 'helloworld' for free testing)
+    api_key = "helloworld"
+    ocr_url = "https://api.ocr.space/parse/image"
+
+    with st.spinner("Extracting text from image..."):
+        try:
+            # Send image to OCR API
+            response = requests.post(
+                ocr_url,
+                files={"file": uploaded_file.getvalue()},
+                data={"apikey": api_key, "language": "eng"}
+            )
+            result = response.json()
+
+            # Extract text
+            text = result["ParsedResults"][0]["ParsedText"]
+            st.subheader("Extracted Text")
+            st.text_area("", text, height=200)
+
+        except Exception as e:
+            st.error(f"Error during OCR: {e}")
