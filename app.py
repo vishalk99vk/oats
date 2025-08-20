@@ -1,35 +1,29 @@
 import streamlit as st
-import requests
 from PIL import Image
+import requests
+from io import BytesIO
+import easyocr  # pure Python OCR library
 
-st.title("Image Viewer with OCR (No Heavy Libraries)")
+# Initialize OCR reader
+reader = easyocr.Reader(['en'])  # English language
 
-# Upload image
-uploaded_file = st.file_uploader("Upload an image", type=["png", "jpg", "jpeg"])
+st.title("OCR from Image URLs")
+
+uploaded_file = st.file_uploader("Upload a text file with image URLs", type="txt")
 
 if uploaded_file:
-    # Display uploaded image
-    img = Image.open(uploaded_file)
-    st.image(img, caption="Uploaded Image", use_column_width=True)
-
-    # OCR.space API key (use 'helloworld' for free testing)
-    api_key = "helloworld"
-    ocr_url = "https://api.ocr.space/parse/image"
-
-    with st.spinner("Extracting text from image..."):
+    urls = uploaded_file.read().decode("utf-8").splitlines()
+    for url in urls:
+        st.write(f"Processing: {url}")
         try:
-            # Send image to OCR API
-            response = requests.post(
-                ocr_url,
-                files={"file": uploaded_file.getvalue()},
-                data={"apikey": api_key, "language": "eng"}
-            )
-            result = response.json()
+            response = requests.get(url)
+            img = Image.open(BytesIO(response.content))
 
-            # Extract text
-            text = result["ParsedResults"][0]["ParsedText"]
-            st.subheader("Extracted Text")
-            st.text_area("", text, height=200)
+            # Run OCR
+            result = reader.readtext(response.content)
+            extracted_text = " ".join([text[1] for text in result])
 
+            st.image(img, caption="Image")
+            st.text_area("Extracted Text", extracted_text, height=150)
         except Exception as e:
-            st.error(f"Error during OCR: {e}")
+            st.error(f"Failed to process {url}: {e}")
